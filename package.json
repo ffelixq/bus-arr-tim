@@ -1,12 +1,12 @@
 {
-  "name": "busnow-sg",
+  "name": "bus-arr-tim",
   "version": "1.0.0",
   "private": true,
+  "type": "module",
   "scripts": {
-    "dev": "wrangler dev",
     "deploy": "wrangler deploy"
   },
   "devDependencies": {
-    "wrangler": "^3.0.0"
+    "wrangler": "^4.71.0"
   }
 }
