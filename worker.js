@@ -1,12 +1,6 @@
-// ================================================================
-//  BusNow SG — Cloudflare Worker
-//  Personal Singapore bus arrival dashboard
-// ================================================================
-
-// ---------- SERVER-SIDE CACHE (per-isolate, resets on cold start) ----------
 let _stopsCache = null;
 let _stopsCacheAt = 0;
-const STOPS_TTL = 6 * 3600 * 1000; // 6 hours
+const STOPS_TTL = 6 * 3600 * 1000;
 
 async function getAllStops(key) {
   if (_stopsCache && Date.now() - _stopsCacheAt < STOPS_TTL) return _stopsCache;
@@ -17,7 +11,12 @@ async function getAllStops(key) {
   while (true) {
     const r = await fetch(
       `https://datamall2.mytransport.sg/ltaodataservice/BusStops?$skip=${skip}`,
-      { headers: { AccountKey: key, accept: "application/json" } }
+      {
+        headers: {
+          AccountKey: key,
+          accept: "application/json",
+        },
+      }
     );
 
     if (!r.ok) break;
@@ -43,7 +42,12 @@ async function getRoute(key, svc, dir) {
   while (true) {
     const r = await fetch(
       `https://datamall2.mytransport.sg/ltaodataservice/BusRoutes?$filter=ServiceNo eq '${svc}' and Direction eq ${dir}&$skip=${skip}`,
-      { headers: { AccountKey: key, accept: "application/json" } }
+      {
+        headers: {
+          AccountKey: key,
+          accept: "application/json",
+        },
+      }
     );
 
     if (!r.ok) break;
@@ -68,10 +72,12 @@ const CORS = {
 const json = (data, status = 200) =>
   new Response(JSON.stringify(data), {
     status,
-    headers: { ...CORS, "Content-Type": "application/json" },
+    headers: {
+      ...CORS,
+      "Content-Type": "application/json",
+    },
   });
 
-// ---------- MAIN HANDLER ----------
 export default {
   async fetch(req, env) {
     const url = new URL(req.url);
@@ -84,7 +90,7 @@ export default {
     try {
       if (path === "/" || path === "/index.html") {
         return new Response(buildHTML(env.GOOGLE_MAPS_KEY || ""), {
-          headers: { "Content-Type": "text/html;charset=UTF-8" },
+          headers: { "Content-Type": "text/html; charset=UTF-8" },
         });
       }
 
@@ -162,9 +168,6 @@ export default {
   },
 };
 
-// ================================================================
-//  FRONTEND HTML (injected inline by the Worker)
-// ================================================================
 function buildHTML(mapsKey) {
   return `<!DOCTYPE html>
 <html lang="en">
@@ -208,6 +211,18 @@ html,body{
   -webkit-font-smoothing:antialiased
 }
 #map{position:fixed;inset:0;z-index:0}
+#map-fallback{
+  position:fixed;
+  inset:0;
+  z-index:1;
+  display:none;
+  align-items:center;
+  justify-content:center;
+  background:#0d1117;
+  color:#e6edf3;
+  padding:24px;
+  text-align:center;
+}
 .top-bar{
   position:fixed;top:0;left:0;right:0;z-index:100;
   padding:12px 14px 0;
@@ -237,7 +252,7 @@ html,body{
   color:var(--text);font:inherit;font-size:13.5px;padding:0 8px;
 }
 .search-bar input::placeholder{color:var(--muted)}
-#search-clear{
+#qclr{
   background:none;border:none;color:var(--muted);
   font-size:18px;line-height:1;padding:0 2px;display:none
 }
@@ -247,7 +262,6 @@ html,body{
   display:flex;align-items:center;justify-content:center;
   flex-shrink:0;transition:all .2s;color:var(--text);
 }
-.icon-btn:hover,.icon-btn:active{background:var(--card);border-color:rgba(0,217,126,.4)}
 .bottom-sheet{
   position:fixed;bottom:0;left:0;right:0;z-index:90;
   background:var(--surface);border-radius:20px 20px 0 0;
@@ -486,6 +500,13 @@ html,body{
 </head>
 <body>
 <div id="map"></div>
+<div id="map-fallback">
+  <div>
+    <div style="font-size:28px;margin-bottom:10px;">🗺️</div>
+    <div style="font-size:16px;font-weight:700;margin-bottom:8px;">Map failed to load</div>
+    <div style="font-size:13px;color:#8b949e;">Open DevTools Console and check the Google Maps key logs.</div>
+  </div>
+</div>
 
 <div class="top-bar">
   <div class="top-row">
@@ -527,9 +548,7 @@ html,body{
 
 <div class="stop-panel" id="spanel">
   <div class="ph-top">
-    <button class="back-btn" id="backbtn" aria-label="Back">
-      ←
-    </button>
+    <button class="back-btn" id="backbtn" aria-label="Back">←</button>
 
     <div class="ph-main">
       <div class="ph-name" id="ph-name">Bus Stop</div>
@@ -561,9 +580,7 @@ html,body{
 
 <div class="route-panel" id="rpanel">
   <div class="rp-head">
-    <div>
-      <div class="rp-num" id="rp-num">174</div>
-    </div>
+    <div><div class="rp-num" id="rp-num">174</div></div>
 
     <div class="rp-meta">
       <div class="rp-title" id="rp-title">Loading route…</div>
@@ -668,52 +685,63 @@ function stopName(code) {
   return s ? s.Description : code;
 }
 
+window.gm_authFailure = function () {
+  console.error("Google Maps auth failure");
+  document.getElementById("map-fallback").style.display = "flex";
+};
+
 window.initMap = function () {
-  const styles = [
-    { elementType: "geometry", stylers: [{ color: "#0d1117" }] },
-    { elementType: "labels.text.fill", stylers: [{ color: "#8b949e" }] },
-    { elementType: "labels.text.stroke", stylers: [{ color: "#0d1117" }] },
-    { featureType: "road", elementType: "geometry", stylers: [{ color: "#1c2333" }] },
-    { featureType: "road", elementType: "geometry.stroke", stylers: [{ color: "#0a0d14" }] },
-    { featureType: "road.highway", elementType: "geometry", stylers: [{ color: "#21262d" }] },
-    { featureType: "road", elementType: "labels.text.fill", stylers: [{ color: "#586e83" }] },
-    { featureType: "water", elementType: "geometry", stylers: [{ color: "#060a0f" }] },
-    { featureType: "water", elementType: "labels.text.fill", stylers: [{ color: "#3d4e5f" }] },
-    { featureType: "poi", stylers: [{ visibility: "off" }] },
-    { featureType: "poi.park", elementType: "geometry", stylers: [{ color: "#0c1a0c" }] },
-    { featureType: "transit", elementType: "labels", stylers: [{ visibility: "off" }] },
-    { featureType: "administrative", elementType: "geometry", stylers: [{ color: "#1c2333" }] },
-    { featureType: "landscape", elementType: "geometry", stylers: [{ color: "#0d1117" }] },
-  ];
+  console.log("initMap called");
+  try {
+    const styles = [
+      { elementType: "geometry", stylers: [{ color: "#0d1117" }] },
+      { elementType: "labels.text.fill", stylers: [{ color: "#8b949e" }] },
+      { elementType: "labels.text.stroke", stylers: [{ color: "#0d1117" }] },
+      { featureType: "road", elementType: "geometry", stylers: [{ color: "#1c2333" }] },
+      { featureType: "road", elementType: "geometry.stroke", stylers: [{ color: "#0a0d14" }] },
+      { featureType: "road.highway", elementType: "geometry", stylers: [{ color: "#21262d" }] },
+      { featureType: "road", elementType: "labels.text.fill", stylers: [{ color: "#586e83" }] },
+      { featureType: "water", elementType: "geometry", stylers: [{ color: "#060a0f" }] },
+      { featureType: "water", elementType: "labels.text.fill", stylers: [{ color: "#3d4e5f" }] },
+      { featureType: "poi", stylers: [{ visibility: "off" }] },
+      { featureType: "poi.park", elementType: "geometry", stylers: [{ color: "#0c1a0c" }] },
+      { featureType: "transit", elementType: "labels", stylers: [{ visibility: "off" }] },
+      { featureType: "administrative", elementType: "geometry", stylers: [{ color: "#1c2333" }] },
+      { featureType: "landscape", elementType: "geometry", stylers: [{ color: "#0d1117" }] }
+    ];
 
-  S.map = new google.maps.Map(document.getElementById("map"), {
-    center: { lat: 1.3521, lng: 103.8198 },
-    zoom: 15,
-    styles,
-    disableDefaultUI: true,
-    gestureHandling: "greedy",
-    clickableIcons: false,
-  });
+    S.map = new google.maps.Map(document.getElementById("map"), {
+      center: { lat: 1.3521, lng: 103.8198 },
+      zoom: 15,
+      styles,
+      disableDefaultUI: true,
+      gestureHandling: "greedy",
+      clickableIcons: false,
+    });
 
-  S.map.addListener("click", (e) => {
-    if (!S.allStops.length) return;
+    S.map.addListener("click", (e) => {
+      if (!S.allStops.length) return;
 
-    const lat = e.latLng.lat();
-    const lng = e.latLng.lng();
+      const lat = e.latLng.lat();
+      const lng = e.latLng.lng();
 
-    const nearest = S.allStops
-      .map((s) => ({ ...s, d: haversine(lat, lng, s.Latitude, s.Longitude) }))
-      .sort((a, b) => a.d - b.d)[0];
+      const nearest = S.allStops
+        .map((s) => ({ ...s, d: haversine(lat, lng, s.Latitude, s.Longitude) }))
+        .sort((a, b) => a.d - b.d)[0];
 
-    if (nearest && nearest.d < 300) {
-      openStop(nearest.BusStopCode);
-    } else {
-      setCenter(lat, lng, false);
-      toast("Showing stops near this location");
-    }
-  });
+      if (nearest && nearest.d < 300) {
+        openStop(nearest.BusStopCode);
+      } else {
+        setCenter(lat, lng, false);
+        toast("Showing stops near this location");
+      }
+    });
 
-  boot();
+    boot();
+  } catch (err) {
+    console.error("initMap failed:", err);
+    document.getElementById("map-fallback").style.display = "flex";
+  }
 };
 
 async function boot() {
@@ -766,6 +794,9 @@ function defaultCenter() {
 
 function setCenter(lat, lng, isUser) {
   S.center = { lat, lng };
+
+  if (!S.map) return;
+
   S.map.setCenter({ lat, lng });
   S.map.setZoom(16);
 
@@ -800,6 +831,8 @@ function updateNearby(lat, lng) {
 }
 
 function updateMarkers() {
+  if (!S.map) return;
+
   Object.values(S.markers).forEach((m) => m.setMap(null));
   S.markers = {};
 
@@ -896,7 +929,10 @@ async function openStop(code) {
     m.setIcon(mkIcon(c === code));
   });
 
-  S.map.panTo({ lat: found.Latitude, lng: found.Longitude });
+  if (S.map) {
+    S.map.panTo({ lat: found.Latitude, lng: found.Longitude });
+  }
+
   document.getElementById("ph-name").textContent = found.Description;
   document.getElementById("ph-code").textContent = found.BusStopCode + " · ";
   document.getElementById("ph-road").textContent = found.RoadName;
@@ -932,7 +968,7 @@ async function loadArrivals(code) {
     updateBusMks(data);
   } catch (e) {
     document.getElementById("arr-list").innerHTML =
-      '<div class="state-box"><div class="empty-emoji">⚠️</div><div class="empty-msg">' + e.message + "</div></div>";
+      '<div class="state-box"><div class="empty-emoji">⚠️</div><div class="empty-msg">' + e.message + '</div></div>';
   }
 }
 
@@ -953,23 +989,23 @@ function renderArrivals(data) {
 
     const fl = buses[0] && buses[0].EstimatedArrival
       ? '<div class="firstlast"><span class="fl-pill">Arr: ' + fmtT(buses[0].EstimatedArrival) + '</span>' +
-        (buses[1] && buses[1].EstimatedArrival ? '<span class="fl-pill">2nd: ' + fmtT(buses[1].EstimatedArrival) + '</span>' : "") +
-        (buses[2] && buses[2].EstimatedArrival ? '<span class="fl-pill">3rd: ' + fmtT(buses[2].EstimatedArrival) + '</span>' : "") +
-        "</div>"
-      : "";
+        (buses[1] && buses[1].EstimatedArrival ? '<span class="fl-pill">2nd: ' + fmtT(buses[1].EstimatedArrival) + '</span>' : '') +
+        (buses[2] && buses[2].EstimatedArrival ? '<span class="fl-pill">3rd: ' + fmtT(buses[2].EstimatedArrival) + '</span>' : '') +
+        '</div>'
+      : '';
 
     return '<div class="svc-card" data-service-no="' + svc.ServiceNo + '" data-operator="' + op + '">' +
       '<div class="op-stripe op-' + (op || "default") + '"></div>' +
       '<div class="svc-hdr">' +
-        '<div class="svc-num">' + svc.ServiceNo + "</div>" +
-        '<div class="svc-dest">→ ' + dest + "</div>" +
-        '<div class="svc-next ' + mc(m1) + '">' + mt(m1) + "</div>" +
-      "</div>" +
-      '<div class="bus-rows">' + buses.map((b, i) => busRow(b, i)).join("") + "</div>" +
+        '<div class="svc-num">' + svc.ServiceNo + '</div>' +
+        '<div class="svc-dest">→ ' + dest + '</div>' +
+        '<div class="svc-next ' + mc(m1) + '">' + mt(m1) + '</div>' +
+      '</div>' +
+      '<div class="bus-rows">' + buses.map((b, i) => busRow(b, i)).join('') + '</div>' +
       fl +
       '<div class="svc-footer"><span style="color:var(--muted)">' + op + '</span><span class="route-tap">View route →</span></div>' +
-    "</div>";
-  }).join("");
+    '</div>';
+  }).join('');
 }
 
 function busRow(bus, i) {
@@ -986,13 +1022,13 @@ function busRow(bus, i) {
   const typeM = { SD:"1-deck", DD:"2-deck", BD:"bendy" };
 
   return '<div class="bus-row">' +
-    '<span class="bseq">' + (i + 1) + "</span>" +
-    '<span class="btime ' + cls + '">' + mt(m) + "</span>" +
-    (lt ? '<span class="load-pill load-' + lc + '">' + lt + "</span>" : "") +
+    '<span class="bseq">' + (i + 1) + '</span>' +
+    '<span class="btime ' + cls + '">' + mt(m) + '</span>' +
+    (lt ? '<span class="load-pill load-' + lc + '">' + lt + '</span>' : '') +
     '<div class="bbadges">' +
-      (bus.Feature === "WAB" ? '<span class="badge wab">♿</span>' : "") +
-      (typeM[bus.Type] ? '<span class="badge' + (bus.Type === "DD" ? " dd" : "") + '">' + typeM[bus.Type] + "</span>" : "") +
-    "</div></div>";
+      (bus.Feature === "WAB" ? '<span class="badge wab">♿</span>' : '') +
+      (typeM[bus.Type] ? '<span class="badge' + (bus.Type === "DD" ? " dd" : "") + '">' + typeM[bus.Type] + '</span>' : '') +
+    '</div></div>';
 }
 
 function clearBusMks() {
@@ -1001,6 +1037,8 @@ function clearBusMks() {
 }
 
 function updateBusMks(data) {
+  if (!S.map) return;
+
   clearBusMks();
 
   const svcs = data.Services || [];
@@ -1031,7 +1069,7 @@ function updateBusMks(data) {
       });
 
       const iw = new google.maps.InfoWindow({
-        content: '<div style="color:#e6edf3;background:#1c2333;padding:3px 8px;border-radius:5px;font-size:12px;font-family:monospace">' + svc.ServiceNo + "</div>"
+        content: '<div style="color:#e6edf3;background:#1c2333;padding:3px 8px;border-radius:5px;font-size:12px;font-family:monospace">' + svc.ServiceNo + '</div>'
       });
 
       m.addListener("click", () => iw.open(S.map, m));
@@ -1095,6 +1133,8 @@ async function showRoute(svcNo, op) {
 }
 
 function drawRoute(stops) {
+  if (!S.map) return;
+
   if (S.routeLine) S.routeLine.setMap(null);
 
   const path = stops.filter((s) => s.lat && s.lng).map((s) => ({ lat: s.lat, lng: s.lng }));
@@ -1134,12 +1174,12 @@ function renderRoutePanel(svc, stops, op) {
 
     return '<div class="rs-item' + (isCur ? " cur" : "") + '" data-stop-code="' + s.code + '">' +
       '<div class="rs-line"><div class="rs-dot"></div>' +
-      (i < stops.length - 1 ? '<div class="rs-connector"></div>' : "") +
-      "</div>" +
-      '<div class="rs-text"><div class="rs-name">' + s.name + "</div>" +
-      '<div class="rs-sub">' + s.code + (s.road ? " · " + s.road : "") + "</div>" +
-      "</div></div>";
-  }).join("");
+      (i < stops.length - 1 ? '<div class="rs-connector"></div>' : '') +
+      '</div>' +
+      '<div class="rs-text"><div class="rs-name">' + s.name + '</div>' +
+      '<div class="rs-sub">' + s.code + (s.road ? " · " + s.road : "") + '</div>' +
+      '</div></div>';
+  }).join('');
 
   document.getElementById("rpanel").classList.add("open");
 
@@ -1203,8 +1243,10 @@ async function handleSearch(q) {
     }));
     renderList();
     updateMarkers();
-    S.map.setCenter({ lat: ref.Latitude, lng: ref.Longitude });
-    S.map.setZoom(15);
+    if (S.map) {
+      S.map.setCenter({ lat: ref.Latitude, lng: ref.Longitude });
+      S.map.setZoom(15);
+    }
     toast('Found ' + m.length + ' stops matching "' + q + '"');
     return;
   }
@@ -1213,12 +1255,19 @@ async function handleSearch(q) {
 }
 
 function openAndCenter(s) {
-  S.map.setCenter({ lat: s.Latitude, lng: s.Longitude });
-  S.map.setZoom(17);
+  if (S.map) {
+    S.map.setCenter({ lat: s.Latitude, lng: s.Longitude });
+    S.map.setZoom(17);
+  }
   openStop(s.BusStopCode);
 }
 
 function geocode(q) {
+  if (!window.google || !google.maps || !google.maps.Geocoder) {
+    toast("Map geocoder unavailable");
+    return;
+  }
+
   const gc = new google.maps.Geocoder();
   gc.geocode({ address: q + ", Singapore" }, (res, status) => {
     if (status === "OK" && res[0]) {
@@ -1335,7 +1384,22 @@ document.addEventListener("DOMContentLoaded", () => {
 });
 </script>
 
-<script src="https://maps.googleapis.com/maps/api/js?key=${mapsKey}&callback=initMap&libraries=geometry,places" async defer></script>
+<script>
+console.log("GOOGLE_MAPS_KEY present:", ${mapsKey ? "true" : "false"});
+console.log("GOOGLE_MAPS_KEY length:", ${mapsKey ? mapsKey.length : 0});
+window.__MAP_KEY_DEBUG__ = {
+  present: ${mapsKey ? "true" : "false"},
+  length: ${mapsKey ? mapsKey.length : 0}
+};
+
+setTimeout(() => {
+  if (!window.google || !window.google.maps) {
+    console.error("Google Maps script did not initialize");
+    document.getElementById("map-fallback").style.display = "flex";
+  }
+}, 6000);
+</script>
+<script async src="https://maps.googleapis.com/maps/api/js?key=${mapsKey}&callback=initMap&loading=async&libraries=geometry,places"></script>
 </body>
 </html>`;
 }
